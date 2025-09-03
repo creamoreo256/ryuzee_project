@@ -1,0 +1,108 @@
+#!/bin/bash
+# ----------------------------------------------
+# Android Kernel Build Script for Termux Ubuntu
+# Simple menuconfig with build options
+# Uses GCC/Clang from /usr/bin
+# ----------------------------------------------
+
+# ----------- Build Info -----------
+export KBUILD_BUILD_USER="ryuzee"
+export KBUILD_BUILD_HOST="project"
+
+# ----------- Config Paths -----------
+KERNEL_DIR="$HOME/ryuzee_project"
+OUT_DIR="$KERNEL_DIR/out"
+DEFCONFIG="surya_defconfig"
+ARCH="arm64"
+DEVICE="surya"
+
+# ----------- ANSI Colors for Output -----------
+GREEN="\033[32m"
+YELLOW="\033[33m"
+RED="\033[31m"
+RESET="\033[0m"
+BOLD="\033[1m"
+
+# ----------- Start Script -----------
+echo -e "${BOLD}${GREEN}Android Kernel Build Script${RESET}"
+echo -e "${GREEN}----------------------------------------------${RESET}"
+echo -e "Kernel Directory: $KERNEL_DIR"
+echo -e "Output Directory: $OUT_DIR"
+echo -e "Target Architecture: $ARCH"
+echo -e "Device: $DEVICE"
+echo ""
+
+# ----------- Kernel Directory Check -----------
+cd $KERNEL_DIR || { echo -e "${RED}[✗] Kernel directory not found!${RESET}"; exit 1; }
+
+# ----------- Backup defconfig -----------
+echo -e "${YELLOW}Checking defconfig backup...${RESET}"
+if [ -f "$KERNEL_DIR/arch/arm64/configs/$DEFCONFIG" ]; then
+    cp "$KERNEL_DIR/arch/arm64/configs/$DEFCONFIG" \
+       "$KERNEL_DIR/arch/arm64/configs/${DEFCONFIG}_backup_$(date +%Y%m%d_%H%M%S)"
+    echo -e "${GREEN}[✓] Backup $DEFCONFIG completed.${RESET}"
+fi
+
+# ----------- Menuconfig Option -----------
+echo -e "${YELLOW}Would you like to run menuconfig?${RESET} [y/n]"
+read -p "Choice: " yn
+case $yn in
+    [Yy]* )
+        echo -e "${BOLD}${YELLOW}[*] Launching menuconfig...${RESET}"
+        make -j$(nproc) O="$OUT_DIR" ARCH=$ARCH $DEFCONFIG
+        make -j$(nproc) O="$OUT_DIR" ARCH=$ARCH CC=clang-20 \
+             CROSS_COMPILE=aarch64-linux-gnu- \
+             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+             CROSS_COMPILE_COMPAT=arm-linux-gnueabi- menuconfig
+    ;;
+    * )
+        echo -e "${YELLOW}[*] Skipping menuconfig.${RESET}"
+    ;;
+esac
+
+# ----------- Build Kernel Option -----------
+echo -e "${YELLOW}Would you like to build the kernel now?${RESET} [y/n]"
+read -p "Choice: " yn
+case $yn in
+    [Yy]* )
+        CPU_CORES=$(nproc)
+        echo -e "${BOLD}${YELLOW}[*] Building kernel with $CPU_CORES cores...${RESET}"
+        make -j$CPU_CORES O="$OUT_DIR" ARCH=$ARCH CC=clang-20 \
+             CROSS_COMPILE=aarch64-linux-gnu- \
+             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+             CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}[✓] Kernel build complete. Output: $OUT_DIR${RESET}"
+        else
+            echo -e "${RED}[✗] Kernel build failed!${RESET}"
+            exit 1
+        fi
+    ;;
+    * )
+        echo -e "${YELLOW}[*] Skipping kernel build.${RESET}"
+    ;;
+esac
+
+# ----------- Boot.img Option -----------
+echo -e "${YELLOW}Would you like to generate boot.img?${RESET} [y/n]"
+read -p "Choice: " yn
+case $yn in
+    [Yy]* )
+        KERNEL_IMG="$OUT_DIR/arch/arm64/boot/Image"
+        RAMDISK="$OUT_DIR/ramdisk.img"
+        BOOT_IMG="$OUT_DIR/boot.img"
+
+        if [ -f "$KERNEL_IMG" ]; then
+            echo -e "${BOLD}${YELLOW}[*] Creating boot.img...${RESET}"
+            mkbootimg --kernel $KERNEL_IMG --ramdisk $RAMDISK --output $BOOT_IMG
+            echo -e "${GREEN}[✓] boot.img created: $BOOT_IMG${RESET}"
+        else
+            echo -e "${RED}[✗] Kernel image not found!${RESET}"
+        fi
+    ;;
+    * )
+        echo -e "${YELLOW}[*] Skipping boot.img generation.${RESET}"
+    ;;
+esac
+
+echo -e "${GREEN}[✓] Script completed successfully!${RESET}"
