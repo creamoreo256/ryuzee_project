@@ -12,6 +12,7 @@
 
 #include "sm6150.dtsi"
 #include "sa6155-pmic.dtsi"
+#include "sm6150-coresight.dtsi"
 
 / {
 	model = "Qualcomm Technologies, Inc. SA6155";

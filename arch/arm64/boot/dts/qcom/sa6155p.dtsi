@@ -14,6 +14,7 @@
 #include "sa6155-pmic.dtsi"
 #include "sa6155p-camera.dtsi"
 #include "sa6155p-camera-sensor.dtsi"
+#include "sm6150-coresight.dtsi"
 
 / {
 	model = "Qualcomm Technologies, Inc. SA6155P";

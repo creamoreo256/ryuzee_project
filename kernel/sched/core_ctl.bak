@@ -28,8 +28,8 @@
 #include "walt.h"
 
 /* Define missing sysctl variables to fix linker errors */
-unsigned int sysctl_sched_conservative_pl __read_mostly = 0;
-unsigned int sysctl_sched_many_wakeup_threshold __read_mostly = 4;
+int sysctl_sched_conservative_pl __read_mostly = 0;
+int sysctl_sched_many_wakeup_threshold __read_mostly = 4;
 
 #define MAX_CPUS_PER_CLUSTER 6
 #define MAX_CLUSTERS 3
