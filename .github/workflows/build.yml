@@ -1,0 +1,35 @@
+name: Build Kernel
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+
+    - name: Install build deps
+      run: |
+        sudo apt update
+        sudo apt install -y \
+          bc bison build-essential ccache flex \
+          libssl-dev libelf-dev lld git wget unzip
+
+    - name: Get Clang
+      run: |
+        git clone --depth=1 https://github.com/llvm/llvm-project clang
+
+    - name: Build kernel
+      run: |
+        chmod +x build.sh
+        ./build.sh
+
+    - name: Upload result
+      uses: actions/upload-artifact@v4
+      with:
+        name: kernel-out
+        path: out/arch/arm64/boot/
