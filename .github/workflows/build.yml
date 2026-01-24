@@ -28,8 +28,20 @@ jobs:
         chmod +x build.sh
         ./build.sh
 
-    - name: Upload result
+    # ==============================
+    # Upload kernel output
+    # ==============================
+    - name: Upload kernel result
       uses: actions/upload-artifact@v4
       with:
         name: kernel-out
         path: out/arch/arm64/boot/
+
+    # ==============================
+    # Upload defconfig backup
+    # ==============================
+    - name: Upload defconfig backup
+      uses: actions/upload-artifact@v4
+      with:
+        name: defconfig-backup
+        path: defconfig_backup/
