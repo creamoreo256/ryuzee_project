@@ -3,6 +3,8 @@ name: Build Kernel
 on:
   workflow_dispatch:
   push:
+    tags:
+      - "v*"
 
 jobs:
   build:
@@ -11,13 +13,15 @@ jobs:
     steps:
     - name: Checkout source
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0   # penting buat changelog
 
     - name: Install build deps
       run: |
         sudo apt update
         sudo apt install -y \
           bc bison build-essential ccache flex \
-          libssl-dev libelf-dev lld git wget unzip
+          libssl-dev libelf-dev lld git wget unzip zip
 
     - name: Get Clang
       run: |
@@ -29,19 +33,52 @@ jobs:
         ./build.sh
 
     # ==============================
-    # Upload kernel output
+    # Pack ZIP
     # ==============================
-    - name: Upload kernel result
-      uses: actions/upload-artifact@v4
-      with:
-        name: kernel-out
-        path: out/arch/arm64/boot/
+    - name: Pack kernel zip
+      run: |
+        KERNEL_IMAGE=out/arch/arm64/boot/Image.gz-dtb
+        ZIP_NAME="SuryaKernel-${GITHUB_REF_NAME}.zip"
+
+        cp ${KERNEL_IMAGE} AnyKernel3/Image.gz-dtb
+        cd AnyKernel3
+        zip -r9 ../${ZIP_NAME} *
+        cd ..
+
+        echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_ENV
 
     # ==============================
-    # Upload defconfig backup
+    # Generate Changelog
     # ==============================
-    - name: Upload defconfig backup
+    - name: Generate changelog
+      run: |
+        echo "## Changelog (${GITHUB_REF_NAME})" > CHANGELOG.md
+        echo "" >> CHANGELOG.md
+        git log --pretty=format:"- %s (%an)" $(git describe --tags --abbrev=0 HEAD^)..HEAD >> CHANGELOG.md
+
+    # ==============================
+    # Upload Artifacts
+    # ==============================
+    - name: Upload kernel zip
       uses: actions/upload-artifact@v4
       with:
-        name: defconfig-backup
-        path: defconfig_backup/
+        name: kernel-zip
+        path: "*.zip"
+
+    - name: Upload changelog
+      uses: actions/upload-artifact@v4
+      with:
+        name: changelog
+        path: CHANGELOG.md
+
+    # ==============================
+    # GitHub Release
+    # ==============================
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          *.zip
+          CHANGELOG.md
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
