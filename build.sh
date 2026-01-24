@@ -2,6 +2,18 @@
 set -e
 
 # ==============================
+# Kernel Version (SAFE)
+# ==============================
+KERNEL_NAME="UranusKernel"
+KERNEL_CODENAME="Uranus ⚜️"
+KERNEL_VERSION="$(date +%Y%m%d)"
+ZIP_NAME="${KERNEL_NAME}-${KERNEL_VERSION}"
+
+export KERNEL_NAME
+export KERNEL_VERSION
+export ZIP_NAME
+
+# ==============================
 # Build Identity
 # ==============================
 export KBUILD_BUILD_USER=ryuzee
@@ -52,7 +64,7 @@ compile() {
     echo "==> Using ${DEFCONFIG}"
     make O=${OUT_DIR} ARCH=arm64 ${DEFCONFIG}
 
-    echo "==> Building kernel"
+    echo "==> Building kernel ${KERNEL_CODENAME}"
     make -j$(nproc) O=${OUT_DIR} ARCH=arm64 \
         CC=clang \
         LD=ld.lld \
@@ -70,5 +82,5 @@ compile
 # ==============================
 # Result Check
 # ==============================
-echo "==> Build finished"
+echo "==> Build finished: ${ZIP_NAME}"
 ls -lh ${OUT_DIR}/arch/arm64/boot || true
