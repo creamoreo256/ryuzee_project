@@ -1,75 +1,74 @@
-#!/bin/bash
-#
-# Compile script for Arise kernel
-# Copyright (C) 2020-2021 Adithya R.
+#!/usr/bin/env bash
+set -e
 
-SECONDS=0 # builtin bash timer
-ZIPNAME="Shinigami-surya-$(date '+%Y%m%d-%H%M').zip"
-TC_DIR="$(pwd)/tc/clang-498229"
-AK3_DIR="$(pwd)/android/AnyKernel3"
-DEFCONFIG="surya_defconfig"
+# ==============================
+# Build Identity
+# ==============================
+export KBUILD_BUILD_USER=ryuzee
+export KBUILD_BUILD_HOST=project
 
-if test -z "$(git rev-parse --show-cdup 2>/dev/null)" &&
-   head=$(git rev-parse --verify HEAD 2>/dev/null); then
-	ZIPNAME="${ZIPNAME::-4}-$(echo $head | cut -c1-8).zip"
-fi
+# ==============================
+# Arch & Path
+# ==============================
+export ARCH=arm64
+export SUBARCH=arm64
 
-export PATH="$TC_DIR/bin:$PATH"
+WORK_DIR=$(pwd)
+OUT_DIR=${WORK_DIR}/out
+DEFCONFIG=surya_defconfig
 
-if ! [ -d "$TC_DIR" ]; then
-	echo "AOSP clang not found! Cloning to $TC_DIR..."
-	if ! git clone --depth=1 -b 17 https://gitlab.com/ThankYouMario/android_prebuilts_clang-standalone "$TC_DIR"; then
-		echo "Cloning failed! Aborting..."
-		exit 1
-	fi
-fi
+export PATH=${WORK_DIR}/clang/bin:${PATH}
 
-if [[ $1 = "-r" || $1 = "--regen" ]]; then
-	make O=out ARCH=arm64 $DEFCONFIG savedefconfig
-	cp out/defconfig arch/arm64/configs/$DEFCONFIG
-	echo -e "\nSuccessfully regenerated defconfig at $DEFCONFIG"
-	exit
-fi
+# ==============================
+# Backup defconfig
+# ==============================
+BACKUP_DIR=${WORK_DIR}/defconfig_backup
+TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
 
-if [[ $1 = "-rf" || $1 = "--regen-full" ]]; then
-	make O=out ARCH=arm64 $DEFCONFIG
-	cp out/.config arch/arm64/configs/$DEFCONFIG
-	echo -e "\nSuccessfully regenerated full defconfig at $DEFCONFIG"
-	exit
-fi
+mkdir -p ${BACKUP_DIR}
 
-if [[ $1 = "-c" || $1 = "--clean" ]]; then
-	rm -rf out
-fi
-
-mkdir -p out
-make O=out ARCH=arm64 $DEFCONFIG
-
-echo -e "\nStarting compilation...\n"
-make -j$(nproc --all) O=out ARCH=arm64 CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1 Image.gz dtb.img dtbo.img 2> >(tee log.txt >&2) || exit $?
-
-kernel="out/arch/arm64/boot/Image.gz"
-dtb="out/arch/arm64/boot/dtb.img"
-dtbo="out/arch/arm64/boot/dtbo.img"
-
-if [ -f "$kernel" ] && [ -f "$dtb" ] && [ -f "$dtbo" ]; then
-	echo -e "\nKernel compiled succesfully! Zipping up...\n"
-	if [ -d "$AK3_DIR" ]; then
-		cp -r $AK3_DIR AnyKernel3
-	elif ! git clone -q https://github.com/surya-aosp/AnyKernel3 -b shinigami; then
-		echo -e "\nAnyKernel3 repo not found locally and couldn't clone from GitHub! Aborting..."
-		exit 1
-	fi
-	cp $kernel $dtb $dtbo AnyKernel3
-	rm -rf out/arch/arm64/boot
-	cd AnyKernel3
-	git checkout shinigami &> /dev/null
-	zip -r9 "../$ZIPNAME" * -x .git README.md *placeholder
-	cd ..
-	rm -rf AnyKernel3
-	echo -e "\nCompleted in $((SECONDS / 60)) minute(s) and $((SECONDS % 60)) second(s) !"
-	echo "Zip: $ZIPNAME"
+if [ -f arch/arm64/configs/${DEFCONFIG} ]; then
+    cp arch/arm64/configs/${DEFCONFIG} \
+       ${BACKUP_DIR}/${DEFCONFIG}.${TIMESTAMP}.bak
+    echo "==> Defconfig backed up:"
+    echo "    ${BACKUP_DIR}/${DEFCONFIG}.${TIMESTAMP}.bak"
 else
-	echo -e "\nCompilation failed!"
-	exit 1
+    echo "!! Defconfig not found: ${DEFCONFIG}"
+    exit 1
 fi
+
+# ==============================
+# Output Image
+# ==============================
+KERN_IMG="${OUT_DIR}/arch/arm64/boot/Image.gz-dtb"
+KERN_IMG2="${OUT_DIR}/arch/arm64/boot/Image.gz"
+
+# ==============================
+# Compile Function
+# ==============================
+compile() {
+    mkdir -p ${OUT_DIR}
+
+    echo "==> Using ${DEFCONFIG}"
+    make O=${OUT_DIR} ARCH=arm64 ${DEFCONFIG}
+
+    echo "==> Building kernel"
+    make -j$(nproc) O=${OUT_DIR} ARCH=arm64 \
+        CC=clang \
+        LD=ld.lld \
+        AR=llvm-ar \
+        NM=llvm-nm \
+        OBJCOPY=llvm-objcopy \
+        OBJDUMP=llvm-objdump \
+        STRIP=llvm-strip \
+        CROSS_COMPILE=aarch64-linux-gnu- \
+        CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+}
+
+compile
+
+# ==============================
+# Result Check
+# ==============================
+echo "==> Build finished"
+ls -lh ${OUT_DIR}/arch/arm64/boot || true
