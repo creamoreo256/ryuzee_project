@@ -25,10 +25,9 @@ jobs:
           bc bison build-essential ccache flex \
           libssl-dev libelf-dev lld git wget unzip zip
 
-    - name: Get Clang
-      run: |
-        git clone --depth=1 https://github.com/llvm/llvm-project clang
-
+    - name: Get Clang (Android prebuilt)
+  run: |
+    git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
     - name: Build kernel
       run: |
         chmod +x build.sh
