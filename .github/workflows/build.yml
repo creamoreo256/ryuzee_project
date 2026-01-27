@@ -3,6 +3,8 @@ name: Build Kernel
 on:
   workflow_dispatch:
   push:
+    branches:
+      - "**"
     tags:
       - "v*"
 
@@ -38,7 +40,7 @@ jobs:
     - name: Pack kernel zip
       run: |
         KERNEL_IMAGE=out/arch/arm64/boot/Image.gz-dtb
-        ZIP_NAME="SuryaKernel-${GITHUB_REF_NAME}.zip"
+        ZIP_NAME="${ZIP_NAME:-SuryaKernel-${GITHUB_REF_NAME}}.zip"
 
         cp ${KERNEL_IMAGE} AnyKernel3/Image.gz-dtb
         cd AnyKernel3
@@ -48,13 +50,15 @@ jobs:
         echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_ENV
 
     # ==============================
-    # Generate Changelog
+    # Generate Changelog (TAG ONLY)
     # ==============================
     - name: Generate changelog
+      if: startsWith(github.ref, 'refs/tags/')
       run: |
         echo "## Changelog (${GITHUB_REF_NAME})" > CHANGELOG.md
         echo "" >> CHANGELOG.md
-        git log --pretty=format:"- %s (%an)" $(git describe --tags --abbrev=0 HEAD^)..HEAD >> CHANGELOG.md
+        git log --pretty=format:"- %s (%an)" \
+          $(git describe --tags --abbrev=0 HEAD^)..HEAD >> CHANGELOG.md
 
     # ==============================
     # Upload Artifacts
@@ -66,15 +70,17 @@ jobs:
         path: "*.zip"
 
     - name: Upload changelog
+      if: startsWith(github.ref, 'refs/tags/')
       uses: actions/upload-artifact@v4
       with:
         name: changelog
         path: CHANGELOG.md
 
     # ==============================
-    # GitHub Release
+    # GitHub Release (TAG ONLY)
     # ==============================
     - name: Create GitHub Release
+      if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2
       with:
         files: |
