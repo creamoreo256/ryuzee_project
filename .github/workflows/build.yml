@@ -2,10 +2,7 @@ name: Build Kernel
 
 on:
   workflow_dispatch:
-  push:
-    branches: ["**"]
-    tags: ["v*"]
-
+  
 jobs:
   build:
     runs-on: ubuntu-22.04
