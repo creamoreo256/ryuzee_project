@@ -12,9 +12,7 @@ ZIP_NAME="${KERNEL_NAME}-${KERNEL_VERSION}"
 export KERNEL_NAME KERNEL_VERSION ZIP_NAME
 
 # Kirim ZIP_NAME ke GitHub Actions
-if [ -n "${GITHUB_ENV}" ]; then
-    echo "ZIP_NAME=${ZIP_NAME}" >> "${GITHUB_ENV}"
-fi
+[ -n "${GITHUB_ENV}" ] && echo "ZIP_NAME=${ZIP_NAME}" >> "${GITHUB_ENV}"
 
 # ==============================
 # Build Identity
@@ -33,10 +31,6 @@ OUT_DIR=${WORK_DIR}/out
 DEFCONFIG=surya_defconfig
 
 export PATH=${WORK_DIR}/clang/bin:${PATH}
-
-# ==============================
-# Kernel local version (uname -r)
-# ==============================
 export LOCALVERSION="-Uranus"
 
 # ==============================
@@ -45,7 +39,6 @@ export LOCALVERSION="-Uranus"
 BACKUP_DIR=${WORK_DIR}/defconfig_backup
 TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
 mkdir -p ${BACKUP_DIR}
-
 cp arch/arm64/configs/${DEFCONFIG} \
    ${BACKUP_DIR}/${DEFCONFIG}.${TIMESTAMP}.bak
 
@@ -70,18 +63,27 @@ make -j$(nproc) O=${OUT_DIR} ARCH=arm64 \
     CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
 # ==============================
-# Create dtb.img (gabungan)
+# VALIDASI OUTPUT WAJIB
 # ==============================
-DTB_DIR="${OUT_DIR}/arch/arm64/boot/dts/qcom"
-DTB_IMG="${OUT_DIR}/arch/arm64/boot/dtb.img"
+BOOT_DIR="${OUT_DIR}/arch/arm64/boot"
+IMAGE="${BOOT_DIR}/Image.gz"
+DTB_DIR="${BOOT_DIR}/dts/qcom"
+DTB_IMG="${BOOT_DIR}/dtb.img"
 
+[ -f "${IMAGE}" ] || { echo "❌ Image.gz NOT FOUND"; exit 1; }
+
+# ==============================
+# Create dtb.img (WAJIB)
+# ==============================
+echo "==> Creating dtb.img"
 if ls ${DTB_DIR}/*.dtb 1> /dev/null 2>&1; then
-    echo "==> Creating dtb.img"
     cat ${DTB_DIR}/*.dtb > ${DTB_IMG}
+else
+    echo "❌ No DTB files found in ${DTB_DIR}"
+    exit 1
 fi
 
-# ==============================
-# Result Check
-# ==============================
+[ -f "${DTB_IMG}" ] || { echo "❌ dtb.img FAILED"; exit 1; }
+
 echo "==> Build finished: ${ZIP_NAME}"
-ls -lh ${OUT_DIR}/arch/arm64/boot || true
+ls -lh ${BOOT_DIR}
