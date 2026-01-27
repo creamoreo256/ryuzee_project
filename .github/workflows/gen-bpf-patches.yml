@@ -1,0 +1,44 @@
+name: Generate BPF patches (A16)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  gen-bpf:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Clone crDroid kernel
+        run: |
+          git clone https://github.com/crdroidandroid/android_kernel_xiaomi_surya.git crdroid
+          cd crdroid
+          git checkout 16.0-bpf
+
+      - name: Collect BPF-related commits (SAFE FILTER)
+        run: |
+          cd crdroid
+          mkdir -p ../out_patches
+          # Filter commit yang relevan untuk BPF + fake uname
+          git log --reverse --oneline | \
+            grep -Ei "bpf|syscall|perf" | \
+            grep -Eiv "btf|debug|driver|dts|power|camera|touch" | \
+            awk '{print $1}' > /tmp/bpf_commits.txt
+
+          echo "Commit list:"
+          cat /tmp/bpf_commits.txt
+
+      - name: Generate .patch files
+        run: |
+          cd crdroid
+          i=1
+          while read -r c; do
+            echo "Generating patch for $c"
+            git format-patch -1 "$c" --stdout > ../out_patches/$(printf "%04d" $i)-bpf.patch
+            i=$((i+1))
+          done < /tmp/bpf_commits.txt
+
+      - name: Upload patches as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bpf-patches-16.0
+          path: out_patches/
