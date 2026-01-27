@@ -25,25 +25,46 @@ jobs:
           bc bison build-essential ccache flex \
           libssl-dev libelf-dev lld git wget unzip zip
 
+    # ==============================
+    # Cache Clang (ANTI DOWNLOAD ULANG)
+    # ==============================
+    - name: Cache Proton Clang
+      uses: actions/cache@v4
+      with:
+        path: clang
+        key: ${{ runner.os }}-proton-clang
+
+    # ==============================
+    # Get Clang (Android prebuilt)
+    # ==============================
     - name: Get Clang (Android prebuilt)
       run: |
-        git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
+        if [ ! -d clang ]; then
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
+        else
+          echo "Using cached Proton Clang"
+        fi
 
+    # ==============================
+    # Build Kernel
+    # ==============================
     - name: Build kernel
       run: |
         chmod +x build.sh
         ./build.sh
 
     # ==============================
-    # Pack ZIP
+    # Pack ZIP (Image.gz)
     # ==============================
     - name: Pack kernel zip
       run: |
         KERNEL_IMAGE=out/arch/arm64/boot/Image.gz
-        cp ${KERNEL_IMAGE} AnyKernel3/Image.gz
         ZIP_NAME="${ZIP_NAME:-SuryaKernel-${GITHUB_REF_NAME}}.zip"
 
-        cp ${KERNEL_IMAGE} AnyKernel3/Image.gz-dtb
+        # safety check
+        [ -f ${KERNEL_IMAGE} ] || { echo "Kernel image not found!"; exit 1; }
+
+        cp ${KERNEL_IMAGE} AnyKernel3/Image.gz
         cd AnyKernel3
         zip -r9 ../${ZIP_NAME} *
         cd ..
