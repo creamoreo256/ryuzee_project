@@ -26,7 +26,7 @@ BLOCK=/dev/block/bootdevice/by-name/boot;
 IS_SLOT_DEVICE=0;
 RAMDISK_COMPRESSION=auto;
 PATCH_VBMETA_FLAG=auto;
-
+kernel=Image.gz
 # import functions/variables and setup patching - see for reference (DO NOT REMOVE)
 . tools/ak3-core.sh;
 
