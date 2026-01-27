@@ -49,16 +49,24 @@ jobs:
         ./build.sh
 
     # ==============================
-    # Pack AnyKernel ZIP (FULL)
+    # Pack AnyKernel ZIP (VALIDATED)
     # ==============================
     - name: Pack kernel zip
       run: |
         OUT=out/arch/arm64/boot
         AK=AnyKernel3
 
-        cp ${OUT}/Image.gz ${AK}/Image.gz
-        [ -f ${OUT}/dtb.img ] && cp ${OUT}/dtb.img ${AK}/dtb.img
-        [ -f ${OUT}/dtbo.img ] && cp ${OUT}/dtbo.img ${AK}/dtbo.img
+        IMAGE=${OUT}/Image.gz
+        DTB=${OUT}/dtb.img
+        DTBO=${OUT}/dtbo.img
+
+        # HARD VALIDATION
+        [ -f ${IMAGE} ] || { echo "❌ Image.gz missing"; exit 1; }
+        [ -f ${DTB} ]   || { echo "❌ dtb.img missing"; exit 1; }
+
+        cp ${IMAGE} ${AK}/Image.gz
+        cp ${DTB}   ${AK}/dtb.img
+        [ -f ${DTBO} ] && cp ${DTBO} ${AK}/dtbo.img
 
         ZIP_NAME="${ZIP_NAME:-UranusKernel-${GITHUB_REF_NAME}}.zip"
         cd ${AK}
