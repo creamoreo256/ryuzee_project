@@ -13,6 +13,11 @@ export KERNEL_NAME
 export KERNEL_VERSION
 export ZIP_NAME
 
+# 👉 OPSI 1: kirim ZIP_NAME ke GitHub Actions env
+if [ -n "${GITHUB_ENV}" ]; then
+    echo "ZIP_NAME=${ZIP_NAME}" >> "${GITHUB_ENV}"
+fi
+
 # ==============================
 # Build Identity
 # ==============================
@@ -30,6 +35,12 @@ OUT_DIR=${WORK_DIR}/out
 DEFCONFIG=surya_defconfig
 
 export PATH=${WORK_DIR}/clang/bin:${PATH}
+
+# ==============================
+# Kernel local version (uname -r)
+# ==============================
+# 👉 OPSI 3: versi kernel tampil di uname -r
+export LOCALVERSION="Uranus ⚜️"
 
 # ==============================
 # Backup defconfig
