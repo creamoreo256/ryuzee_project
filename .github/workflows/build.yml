@@ -3,10 +3,8 @@ name: Build Kernel
 on:
   workflow_dispatch:
   push:
-    branches:
-      - "**"
-    tags:
-      - "v*"
+    branches: ["**"]
+    tags: ["v*"]
 
 jobs:
   build:
@@ -26,7 +24,7 @@ jobs:
           libssl-dev libelf-dev lld git wget unzip zip
 
     # ==============================
-    # Cache Clang (ANTI DOWNLOAD ULANG)
+    # Cache Proton Clang
     # ==============================
     - name: Cache Proton Clang
       uses: actions/cache@v4
@@ -34,10 +32,7 @@ jobs:
         path: clang
         key: ${{ runner.os }}-proton-clang
 
-    # ==============================
-    # Get Clang (Android prebuilt)
-    # ==============================
-    - name: Get Clang (Android prebuilt)
+    - name: Get Clang
       run: |
         if [ ! -d clang ]; then
           git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
@@ -54,49 +49,32 @@ jobs:
         ./build.sh
 
     # ==============================
-    # Pack ZIP (Image.gz)
+    # Pack AnyKernel ZIP (FULL)
     # ==============================
     - name: Pack kernel zip
       run: |
-        KERNEL_IMAGE=out/arch/arm64/boot/Image.gz
-        ZIP_NAME="${ZIP_NAME:-SuryaKernel-${GITHUB_REF_NAME}}.zip"
+        OUT=out/arch/arm64/boot
+        AK=AnyKernel3
 
-        # safety check
-        [ -f ${KERNEL_IMAGE} ] || { echo "Kernel image not found!"; exit 1; }
+        cp ${OUT}/Image.gz ${AK}/Image.gz
+        [ -f ${OUT}/dtb.img ] && cp ${OUT}/dtb.img ${AK}/dtb.img
+        [ -f ${OUT}/dtbo.img ] && cp ${OUT}/dtbo.img ${AK}/dtbo.img
 
-        cp ${KERNEL_IMAGE} AnyKernel3/Image.gz
-        cd AnyKernel3
+        ZIP_NAME="${ZIP_NAME:-UranusKernel-${GITHUB_REF_NAME}}.zip"
+        cd ${AK}
         zip -r9 ../${ZIP_NAME} *
         cd ..
 
         echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_ENV
 
     # ==============================
-    # Generate Changelog (TAG ONLY)
-    # ==============================
-    - name: Generate changelog
-      if: startsWith(github.ref, 'refs/tags/')
-      run: |
-        echo "## Changelog (${GITHUB_REF_NAME})" > CHANGELOG.md
-        echo "" >> CHANGELOG.md
-        git log --pretty=format:"- %s (%an)" \
-          $(git describe --tags --abbrev=0 HEAD^)..HEAD >> CHANGELOG.md
-
-    # ==============================
-    # Upload Artifacts
+    # Upload Artifact
     # ==============================
     - name: Upload kernel zip
       uses: actions/upload-artifact@v4
       with:
         name: kernel-zip
         path: "*.zip"
-
-    - name: Upload changelog
-      if: startsWith(github.ref, 'refs/tags/')
-      uses: actions/upload-artifact@v4
-      with:
-        name: changelog
-        path: CHANGELOG.md
 
     # ==============================
     # GitHub Release (TAG ONLY)
@@ -105,8 +83,6 @@ jobs:
       if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2
       with:
-        files: |
-          *.zip
-          CHANGELOG.md
+        files: "*.zip"
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
