@@ -16,7 +16,7 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0   # penting buat changelog
+        fetch-depth: 0
 
     - name: Install build deps
       run: |
@@ -26,8 +26,9 @@ jobs:
           libssl-dev libelf-dev lld git wget unzip zip
 
     - name: Get Clang (Android prebuilt)
-  run: |
-    git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
+      run: |
+        git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
+
     - name: Build kernel
       run: |
         chmod +x build.sh
