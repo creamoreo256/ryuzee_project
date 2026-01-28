@@ -15,6 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: false   # 🔥 FIX KernelSU error
 
       # ============================
       # Clone crDroid BPF source
@@ -26,7 +27,7 @@ jobs:
           git checkout 16.0-bpf
 
       # ============================
-      # Generate REALLY SAFE BPF patches
+      # Collect REALLY SAFE BPF commits
       # ============================
       - name: Collect SAFE BPF commits
         run: |
@@ -37,12 +38,18 @@ jobs:
             kernel/bpf \
             kernel/bpf/syscall.c \
             kernel/bpf/verifier.c \
-            kernel/sys.c \
             include/uapi/linux/bpf.h \
-          | grep -Ei "bpf|ebpf|syscall|verifier" \
-          | grep -Eiv "btf|debug|trace|selftest|perf|x86|arm64|arch" \
-          > /tmp/bpf_list.txt
+          > /tmp/bpf_raw.txt
 
+          > /tmp/bpf_list.txt
+          while read c; do
+            files=$(git show --name-only --pretty=format: "$c")
+            echo "$files" | grep -qE '^(kernel/bpf|include/uapi/linux/bpf.h)' || continue
+            echo "$files" | grep -qE '(arch/|drivers/|perf/|trace/|selftests/|btf)' && continue
+            echo "$c" >> /tmp/bpf_list.txt
+          done < /tmp/bpf_raw.txt
+
+          echo "SAFE BPF commits:"
           wc -l /tmp/bpf_list.txt
           cat /tmp/bpf_list.txt
 
@@ -63,6 +70,18 @@ jobs:
           done
 
       # ============================
+      # Ensure surya_defconfig (SAFE)
+      # ============================
+      - name: Ensure BPF config (surya)
+        run: |
+          DEFCONFIG=arch/arm64/configs/surya_defconfig
+
+          grep -q CONFIG_BPF=y $DEFCONFIG || echo "CONFIG_BPF=y" >> $DEFCONFIG
+          grep -q CONFIG_BPF_SYSCALL=y $DEFCONFIG || echo "CONFIG_BPF_SYSCALL=y" >> $DEFCONFIG
+          grep -q CONFIG_BPF_JIT=y $DEFCONFIG || echo "CONFIG_BPF_JIT=y" >> $DEFCONFIG
+          grep -q CONFIG_HAVE_EBPF_JIT=y $DEFCONFIG || echo "CONFIG_HAVE_EBPF_JIT=y" >> $DEFCONFIG
+
+      # ============================
       # Commit & push
       # ============================
       - name: Commit
@@ -70,5 +89,5 @@ jobs:
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           git status
-          git commit -am "kernel: backport SAFE eBPF support for A15/A16" || echo "Nothing to commit"
+          git commit -am "kernel: backport SAFE eBPF support for A15/A16 (surya)" || echo "Nothing to commit"
           git push
