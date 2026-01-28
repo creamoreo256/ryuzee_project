@@ -1,0 +1,52 @@
+name: Apply SAFE BPF patches (A16)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  bpf:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout kernel
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Clone crDroid BPF source
+        run: |
+          git clone https://github.com/crdroidandroid/android_kernel_xiaomi_surya crdroid
+          cd crdroid
+          git checkout 16.0-bpf
+
+      - name: Collect SAFE BPF commits
+        run: |
+          cd crdroid
+          mkdir ../patches
+
+          git log --reverse --pretty=format:%H -- \
+            kernel/bpf \
+            kernel/sys.c \
+            include/linux/bpf* \
+            include/uapi/linux/bpf* \
+            kernel/bpf/syscall.c \
+            kernel/bpf/verifier.c > /tmp/bpf_list.txt
+
+          i=1
+          while read c; do
+            git format-patch -1 "$c" -o ../patches --numbered-files
+            i=$((i+1))
+          done < /tmp/bpf_list.txt
+
+      - name: Apply patches
+        run: |
+          for p in patches/*.patch; do
+            git apply --check "$p" && git apply "$p"
+          done
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git commit -am "kernel: apply SAFE BPF patches for A15/A16" || echo "Nothing to commit"
+          git push
