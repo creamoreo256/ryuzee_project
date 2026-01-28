@@ -147,12 +147,10 @@ static void dev_map_free(struct bpf_map *map)
 
 	/* At this point bpf_prog->aux->refcnt == 0 and this map->refcnt == 0,
 	 * so the programs (can be more than one that used this map) were
-	 * disconnected from events. The following synchronize_rcu() guarantees
-	 * both rcu read critical sections complete and waits for
-	 * preempt-disable regions (NAPI being the relevant context here) so we
-	 * are certain there will be no further reads against the netdev_map and
-	 * all flush operations are complete. Flush operations can only be done
-	 * from NAPI context for this reason.
+	 * disconnected from events. Wait for outstanding critical sections in
+	 * these programs to complete. The rcu critical section only guarantees
+	 * no further reads against netdev_map. It does __not__ ensure pending
+	 * flush operations (if any) are complete.
 	 */
 
 	spin_lock(&dev_map_lock);
@@ -183,7 +181,6 @@ static void dev_map_free(struct bpf_map *map)
 		if (!dev)
 			continue;
 
-		free_percpu(dev->bulkq);
 		dev_put(dev->dev);
 		kfree(dev);
 	}
@@ -307,11 +304,12 @@ static int dev_map_delete_elem(struct bpf_map *map, void *key)
 		return -EINVAL;
 
 	/* Use call_rcu() here to ensure any rcu critical sections have
-	 * completed as well as any flush operations because call_rcu
-	 * will wait for preempt-disable region to complete, NAPI in this
-	 * context.  And additionally, the driver tear down ensures all
-	 * soft irqs are complete before removing the net device in the
-	 * case of dev_put equals zero.
+	 * completed, but this does not guarantee a flush has happened
+	 * yet. Because driver side rcu_read_lock/unlock only protects the
+	 * running XDP program. However, for pending flush operations the
+	 * dev and ctx are stored in another per cpu map. And additionally,
+	 * the driver tear down ensures all soft irqs are complete before
+	 * removing the net device in the case of dev_put equals zero.
 	 */
 	old_dev = xchg(&dtab->netdev_map[k], NULL);
 	if (old_dev)

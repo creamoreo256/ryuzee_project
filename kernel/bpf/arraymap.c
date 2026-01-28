@@ -52,27 +52,6 @@ static int bpf_array_alloc_percpu(struct bpf_array *array)
 }
 
 /* Called from syscall */
-static int array_map_alloc_check(union bpf_attr *attr)
-{
-	bool percpu = attr->map_type == BPF_MAP_TYPE_PERCPU_ARRAY;
-	int numa_node = bpf_map_attr_numa_node(attr);
-
-	/* check sanity of attributes */
-	if (attr->max_entries == 0 || attr->key_size != 4 ||
-	    attr->value_size == 0 ||
-	    attr->map_flags & ~ARRAY_CREATE_FLAG_MASK ||
-	    (percpu && numa_node != NUMA_NO_NODE))
-		return -EINVAL;
-
-	if (attr->value_size > KMALLOC_MAX_SIZE)
-		/* if value_size is bigger, the user space won't be able to
-		 * access the elements.
-		 */
-		return -E2BIG;
-
-	return 0;
-}
-
 static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 {
 	bool percpu = attr->map_type == BPF_MAP_TYPE_PERCPU_ARRAY;
@@ -81,6 +60,19 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 	bool unpriv = !capable(CAP_SYS_ADMIN);
 	u64 cost, array_size, mask64;
 	struct bpf_array *array;
+
+	/* check sanity of attributes */
+	if (attr->max_entries == 0 || attr->key_size != 4 ||
+	    attr->value_size == 0 ||
+	    attr->map_flags & ~ARRAY_CREATE_FLAG_MASK ||
+	    (percpu && numa_node != NUMA_NO_NODE))
+		return ERR_PTR(-EINVAL);
+
+	if (attr->value_size > KMALLOC_MAX_SIZE)
+		/* if value_size is bigger, the user space won't be able to
+		 * access the elements.
+		 */
+		return ERR_PTR(-E2BIG);
 
 	elem_size = round_up(attr->value_size, 8);
 
@@ -134,7 +126,12 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 	array->map.unpriv_array = unpriv;
 
 	/* copy mandatory map attributes */
-	bpf_map_init_from_attr(&array->map, attr);
+	array->map.map_type = attr->map_type;
+	array->map.key_size = attr->key_size;
+	array->map.value_size = attr->value_size;
+	array->map.max_entries = attr->max_entries;
+	array->map.map_flags = attr->map_flags;
+	array->map.numa_node = numa_node;
 	array->map.pages = cost;
 	array->elem_size = elem_size;
 
@@ -337,7 +334,6 @@ static void array_map_free(struct bpf_map *map)
 }
 
 const struct bpf_map_ops array_map_ops = {
-	.map_alloc_check = array_map_alloc_check,
 	.map_alloc = array_map_alloc,
 	.map_free = array_map_free,
 	.map_get_next_key = array_map_get_next_key,
@@ -348,7 +344,6 @@ const struct bpf_map_ops array_map_ops = {
 };
 
 const struct bpf_map_ops percpu_array_map_ops = {
-	.map_alloc_check = array_map_alloc_check,
 	.map_alloc = array_map_alloc,
 	.map_free = array_map_free,
 	.map_get_next_key = array_map_get_next_key,
@@ -357,12 +352,12 @@ const struct bpf_map_ops percpu_array_map_ops = {
 	.map_delete_elem = array_map_delete_elem,
 };
 
-static int fd_array_map_alloc_check(union bpf_attr *attr)
+static struct bpf_map *fd_array_map_alloc(union bpf_attr *attr)
 {
 	/* only file descriptors can be stored in this type of map */
 	if (attr->value_size != sizeof(u32))
-		return -EINVAL;
-	return array_map_alloc_check(attr);
+		return ERR_PTR(-EINVAL);
+	return array_map_alloc(attr);
 }
 
 static void fd_array_map_free(struct bpf_map *map)
@@ -487,8 +482,7 @@ static void bpf_fd_array_map_clear(struct bpf_map *map)
 }
 
 const struct bpf_map_ops prog_array_map_ops = {
-	.map_alloc_check = fd_array_map_alloc_check,
-	.map_alloc = array_map_alloc,
+	.map_alloc = fd_array_map_alloc,
 	.map_free = fd_array_map_free,
 	.map_get_next_key = array_map_get_next_key,
 	.map_lookup_elem = fd_array_map_lookup_elem,
@@ -577,8 +571,7 @@ static void perf_event_fd_array_release(struct bpf_map *map,
 }
 
 const struct bpf_map_ops perf_event_array_map_ops = {
-	.map_alloc_check = fd_array_map_alloc_check,
-	.map_alloc = array_map_alloc,
+	.map_alloc = fd_array_map_alloc,
 	.map_free = fd_array_map_free,
 	.map_get_next_key = array_map_get_next_key,
 	.map_lookup_elem = fd_array_map_lookup_elem,
@@ -609,8 +602,7 @@ static void cgroup_fd_array_free(struct bpf_map *map)
 }
 
 const struct bpf_map_ops cgroup_array_map_ops = {
-	.map_alloc_check = fd_array_map_alloc_check,
-	.map_alloc = array_map_alloc,
+	.map_alloc = fd_array_map_alloc,
 	.map_free = cgroup_fd_array_free,
 	.map_get_next_key = array_map_get_next_key,
 	.map_lookup_elem = fd_array_map_lookup_elem,
@@ -628,7 +620,7 @@ static struct bpf_map *array_of_map_alloc(union bpf_attr *attr)
 	if (IS_ERR(inner_map_meta))
 		return inner_map_meta;
 
-	map = array_map_alloc(attr);
+	map = fd_array_map_alloc(attr);
 	if (IS_ERR(map)) {
 		bpf_map_meta_free(inner_map_meta);
 		return map;
@@ -691,7 +683,6 @@ static u32 array_of_map_gen_lookup(struct bpf_map *map,
 }
 
 const struct bpf_map_ops array_of_maps_map_ops = {
-	.map_alloc_check = fd_array_map_alloc_check,
 	.map_alloc = array_of_map_alloc,
 	.map_free = array_of_map_free,
 	.map_get_next_key = array_map_get_next_key,

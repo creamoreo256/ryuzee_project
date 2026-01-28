@@ -1049,7 +1049,6 @@ struct bpf_sock_ops_kern {
 		u32 reply;
 		u32 replylong[4];
 	};
-	u32	is_fullsock;
 };
 
 #endif /* __LINUX_FILTER_H__ */

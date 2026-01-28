@@ -97,54 +97,37 @@ static int check_uarg_tail_zero(void __user *uaddr,
 
 static struct bpf_map *find_and_alloc_map(union bpf_attr *attr)
 {
-	const struct bpf_map_ops *ops;
 	struct bpf_map *map;
-	int err;
 
-	if (attr->map_type >= ARRAY_SIZE(bpf_map_types))
-		return ERR_PTR(-EINVAL);
-	ops = bpf_map_types[attr->map_type];
-	if (!ops)
+	if (attr->map_type >= ARRAY_SIZE(bpf_map_types) ||
+	    !bpf_map_types[attr->map_type])
 		return ERR_PTR(-EINVAL);
 
-	if (ops->map_alloc_check) {
-		err = ops->map_alloc_check(attr);
-		if (err)
-			return ERR_PTR(err);
-	}
-	map = ops->map_alloc(attr);
+	map = bpf_map_types[attr->map_type]->map_alloc(attr);
 	if (IS_ERR(map))
 		return map;
-	map->ops = ops;
+	map->ops = bpf_map_types[attr->map_type];
 	map->map_type = attr->map_type;
 	return map;
 }
 
 void *bpf_map_area_alloc(size_t size, int numa_node)
 {
-	/* We really just want to fail instead of triggering OOM killer
-	 * under memory pressure, therefore we set __GFP_NORETRY to kmalloc,
-	 * which is used for lower order allocation requests.
-	 *
-	 * It has been observed that higher order allocation requests done by
-	 * vmalloc with __GFP_NORETRY being set might fail due to not trying
-	 * to reclaim memory from the page cache, thus we set
-	 * __GFP_RETRY_MAYFAIL to avoid such situations.
+	/* We definitely need __GFP_NORETRY, so OOM killer doesn't
+	 * trigger under memory pressure as we really just want to
+	 * fail instead.
 	 */
-
-	const gfp_t flags = __GFP_NOWARN | __GFP_ZERO;
+	const gfp_t flags = __GFP_NOWARN | __GFP_NORETRY | __GFP_ZERO;
 	void *area;
 
 	if (size <= (PAGE_SIZE << PAGE_ALLOC_COSTLY_ORDER)) {
-		area = kmalloc_node(size, GFP_USER | __GFP_NORETRY | flags,
-				    numa_node);
+		area = kmalloc_node(size, GFP_USER | flags, numa_node);
 		if (area != NULL)
 			return area;
 	}
 
-	return __vmalloc_node_flags_caller(size, numa_node,
-					   GFP_KERNEL | __GFP_RETRY_MAYFAIL |
-					   flags, __builtin_return_address(0));
+	return __vmalloc_node_flags_caller(size, numa_node, GFP_KERNEL | flags,
+					   __builtin_return_address(0));
 }
 
 void bpf_map_area_free(void *area)
@@ -195,13 +178,11 @@ static int bpf_map_alloc_id(struct bpf_map *map)
 {
 	int id;
 
-	idr_preload(GFP_KERNEL);
 	spin_lock_bh(&map_idr_lock);
 	id = idr_alloc_cyclic(&map_idr, map, 1, INT_MAX, GFP_ATOMIC);
 	if (id > 0)
 		map->id = id;
 	spin_unlock_bh(&map_idr_lock);
-	idr_preload_end();
 
 	if (WARN_ON_ONCE(!id))
 		return -ENOSPC;
@@ -262,7 +243,6 @@ void bpf_map_put(struct bpf_map *map)
 {
 	__bpf_map_put(map, true);
 }
-EXPORT_SYMBOL_GPL(bpf_map_put);
 
 void bpf_map_put_with_uref(struct bpf_map *map)
 {
@@ -301,15 +281,13 @@ static void bpf_map_show_fdinfo(struct seq_file *m, struct file *filp)
 		   "value_size:\t%u\n"
 		   "max_entries:\t%u\n"
 		   "map_flags:\t%#x\n"
-		   "memlock:\t%llu\n"
-		   "map_id:\t%u\n",
+		   "memlock:\t%llu\n",
 		   map->map_type,
 		   map->key_size,
 		   map->value_size,
 		   map->max_entries,
 		   map->map_flags,
-		   map->pages * 1ULL << PAGE_SHIFT,
-		   map->id);
+		   map->pages * 1ULL << PAGE_SHIFT);
 
 	if (owner_prog_type) {
 		seq_printf(m, "owner_prog_type:\t%u\n",
@@ -386,10 +364,10 @@ static int bpf_obj_name_cpy(char *dst, const char *src)
 	const char *end = src + BPF_OBJ_NAME_LEN;
 
 	memset(dst, 0, BPF_OBJ_NAME_LEN);
-	/* Copy all isalnum(), '_' and '.' chars. */
+
+	/* Copy all isalnum() and '_' char */
 	while (src < end && *src) {
-		if (!isalnum(*src) &&
-		    *src != '_' && *src != '.')
+		if (!isalnum(*src) && *src != '_')
 			return -EINVAL;
 		*dst++ = *src++;
 	}
@@ -499,7 +477,6 @@ struct bpf_map *bpf_map_inc(struct bpf_map *map, bool uref)
 		atomic_inc(&map->usercnt);
 	return map;
 }
-EXPORT_SYMBOL_GPL(bpf_map_inc);
 
 struct bpf_map *bpf_map_get_with_uref(u32 ufd)
 {
@@ -543,17 +520,6 @@ int __weak bpf_stackmap_copy(struct bpf_map *map, void *key, void *value)
 	return -ENOTSUPP;
 }
 
-static void *__bpf_copy_key(void __user *ukey, u64 key_size)
-{
-	if (key_size)
-		return memdup_user(ukey, key_size);
-
-	if (ukey)
-		return ERR_PTR(-EINVAL);
-
-	return NULL;
-}
-
 /* last field in 'union bpf_attr' used by this command */
 #define BPF_MAP_LOOKUP_ELEM_LAST_FIELD value
 
@@ -563,7 +529,7 @@ static int map_lookup_elem(union bpf_attr *attr)
 	void __user *uvalue = u64_to_user_ptr(attr->value);
 	int ufd = attr->map_fd;
 	struct bpf_map *map;
-	void *key, *value;
+	void *key, *value, *ptr;
 	u32 value_size;
 	struct fd f;
 	int err;
@@ -581,7 +547,7 @@ static int map_lookup_elem(union bpf_attr *attr)
 		goto err_put;
 	}
 
-	key = __bpf_copy_key(ukey, map->key_size);
+	key = memdup_user(ukey, map->key_size);
 	if (IS_ERR(key)) {
 		err = PTR_ERR(key);
 		goto err_put;
@@ -680,7 +646,7 @@ static int map_update_elem(union bpf_attr *attr)
 		goto err_put;
 	}
 
-	key = __bpf_copy_key(ukey, map->key_size);
+	key = memdup_user(ukey, map->key_size);
 	if (IS_ERR(key)) {
 		err = PTR_ERR(key);
 		goto err_put;
@@ -712,7 +678,10 @@ static int map_update_elem(union bpf_attr *attr)
 		err = bpf_percpu_hash_update(map, key, value, attr->flags);
 	} else if (map->map_type == BPF_MAP_TYPE_PERCPU_ARRAY) {
 		err = bpf_percpu_array_update(map, key, value, attr->flags);
-	} else if (IS_FD_ARRAY(map)) {
+	} else if (map->map_type == BPF_MAP_TYPE_PERF_EVENT_ARRAY ||
+		   map->map_type == BPF_MAP_TYPE_PROG_ARRAY ||
+		   map->map_type == BPF_MAP_TYPE_CGROUP_ARRAY ||
+		   map->map_type == BPF_MAP_TYPE_ARRAY_OF_MAPS) {
 		rcu_read_lock();
 		err = bpf_fd_array_map_update_elem(map, f.file, key, value,
 						   attr->flags);
@@ -766,7 +735,7 @@ static int map_delete_elem(union bpf_attr *attr)
 		goto err_put;
 	}
 
-	key = __bpf_copy_key(ukey, map->key_size);
+	key = memdup_user(ukey, map->key_size);
 	if (IS_ERR(key)) {
 		err = PTR_ERR(key);
 		goto err_put;
@@ -816,7 +785,7 @@ static int map_get_next_key(union bpf_attr *attr)
 	}
 
 	if (ukey) {
-		key = __bpf_copy_key(ukey, map->key_size);
+		key = memdup_user(ukey, map->key_size);
 		if (IS_ERR(key)) {
 			err = PTR_ERR(key);
 			goto err_put;
@@ -931,13 +900,11 @@ static int bpf_prog_alloc_id(struct bpf_prog *prog)
 {
 	int id;
 
-	idr_preload(GFP_KERNEL);
 	spin_lock_bh(&prog_idr_lock);
 	id = idr_alloc_cyclic(&prog_idr, prog, 1, INT_MAX, GFP_ATOMIC);
 	if (id > 0)
 		prog->aux->id = id;
 	spin_unlock_bh(&prog_idr_lock);
-	idr_preload_end();
 
 	/* id is in [1, INT_MAX) */
 	if (WARN_ON_ONCE(!id))
@@ -1011,13 +978,11 @@ static void bpf_prog_show_fdinfo(struct seq_file *m, struct file *filp)
 		   "prog_type:\t%u\n"
 		   "prog_jited:\t%u\n"
 		   "prog_tag:\t%s\n"
-		   "memlock:\t%llu\n"
-		   "prog_id:\t%u\n",
+		   "memlock:\t%llu\n",
 		   prog->type,
 		   prog->jited,
 		   prog_tag,
-		   prog->pages * 1ULL << PAGE_SHIFT,
-		   prog->aux->id);
+		   prog->pages * 1ULL << PAGE_SHIFT);
 }
 #endif
 
@@ -1417,37 +1382,6 @@ static int bpf_prog_detach(const union bpf_attr *attr)
 	return ret;
 }
 
-#define BPF_PROG_QUERY_LAST_FIELD query.prog_cnt
-
-static int bpf_prog_query(const union bpf_attr *attr,
-			  union bpf_attr __user *uattr)
-{
-	struct cgroup *cgrp;
-	int ret;
-
-	if (!capable(CAP_NET_ADMIN))
-		return -EPERM;
-	if (CHECK_ATTR(BPF_PROG_QUERY))
-		return -EINVAL;
-	if (attr->query.query_flags & ~BPF_F_QUERY_EFFECTIVE)
-		return -EINVAL;
-
-	switch (attr->query.attach_type) {
-	case BPF_CGROUP_INET_INGRESS:
-	case BPF_CGROUP_INET_EGRESS:
-	case BPF_CGROUP_INET_SOCK_CREATE:
-	case BPF_CGROUP_SOCK_OPS:
-		break;
-	default:
-		return -EINVAL;
-	}
-	cgrp = cgroup_get_from_fd(attr->query.target_fd);
-	if (IS_ERR(cgrp))
-		return PTR_ERR(cgrp);
-	ret = cgroup_bpf_query(cgrp, attr, uattr);
-	cgroup_put(cgrp);
-	return ret;
-}
 #endif /* CONFIG_CGROUP_BPF */
 
 #define BPF_PROG_TEST_RUN_LAST_FIELD test.duration
@@ -1603,7 +1537,7 @@ static int bpf_prog_get_info_by_fd(struct bpf_prog *prog,
 	info.nr_map_ids = prog->aux->used_map_cnt;
 	ulen = min_t(u32, info.nr_map_ids, ulen);
 	if (ulen) {
-		u32 __user *user_map_ids = u64_to_user_ptr(info.map_ids);
+		u32 *user_map_ids = (u32 *)info.map_ids;
 		u32 i;
 
 		for (i = 0; i < ulen; i++)
@@ -1756,9 +1690,6 @@ SYSCALL_DEFINE3(bpf, int, cmd, union bpf_attr __user *, uattr, unsigned int, siz
 		break;
 	case BPF_PROG_DETACH:
 		err = bpf_prog_detach(&attr);
-		break;
-	case BPF_PROG_QUERY:
-		err = bpf_prog_query(&attr, uattr);
 		break;
 #endif
 	case BPF_PROG_TEST_RUN:

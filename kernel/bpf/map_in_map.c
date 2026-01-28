@@ -24,9 +24,7 @@ struct bpf_map *bpf_map_meta_alloc(int inner_map_ufd)
 	 * is a runtime binding.  Doing static check alone
 	 * in the verifier is not enough.
 	 */
-	if (inner_map->map_type == BPF_MAP_TYPE_PROG_ARRAY ||
-	    inner_map->map_type == BPF_MAP_TYPE_CGROUP_STORAGE ||
-	    inner_map->map_type == BPF_MAP_TYPE_PERCPU_CGROUP_STORAGE) {
+	if (inner_map->map_type == BPF_MAP_TYPE_PROG_ARRAY) {
 		fdput(f);
 		return ERR_PTR(-ENOTSUPP);
 	}
@@ -53,7 +51,6 @@ struct bpf_map *bpf_map_meta_alloc(int inner_map_ufd)
 	inner_map_meta->value_size = inner_map->value_size;
 	inner_map_meta->map_flags = inner_map->map_flags;
 	inner_map_meta->max_entries = inner_map->max_entries;
-	inner_map_meta->spin_lock_off = inner_map->spin_lock_off;
 
 	/* Misc members not needed in bpf_map_meta_equal() check. */
 	inner_map_meta->ops = inner_map->ops;
