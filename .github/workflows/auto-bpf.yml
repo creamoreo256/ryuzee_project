@@ -1,4 +1,4 @@
-name: Apply SAFE BPF patches (A16)
+name: Apply SAFE BPF patches (surya 4.14)
 
 on:
   workflow_dispatch:
@@ -15,50 +15,59 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: false   # 🔥 FIX KernelSU error
+          submodules: false
 
       # ============================
-      # Clone crDroid BPF source
+      # Clone crDroid source (reference)
       # ============================
-      - name: Clone crDroid BPF source
+      - name: Clone crDroid kernel source
         run: |
           git clone https://github.com/crdroidandroid/android_kernel_xiaomi_surya crdroid
           cd crdroid
-          git checkout 16.0-bpf
+          git checkout 16.0
 
       # ============================
-      # Collect REALLY SAFE BPF commits
+      # Collect ONLY SAFE BPF commits (4.14-REALISTIC)
       # ============================
       - name: Collect SAFE BPF commits
         run: |
+          set +e
           mkdir -p patches
           cd crdroid
 
+          # HANYA syscall & UAPI (AMAN)
           git log --reverse --pretty=format:%H -- \
-            kernel/bpf \
-            kernel/bpf/syscall.c \
-            kernel/bpf/verifier.c \
+            kernel/sys.c \
             include/uapi/linux/bpf.h \
           > /tmp/bpf_raw.txt
 
           > /tmp/bpf_list.txt
           while read c; do
             files=$(git show --name-only --pretty=format: "$c")
-            echo "$files" | grep -qE '^(kernel/bpf|include/uapi/linux/bpf.h)' || continue
-            echo "$files" | grep -qE '(arch/|drivers/|perf/|trace/|selftests/|btf)' && continue
+
+            # harus hanya syscall / uapi
+            echo "$files" | grep -qE '^(kernel/sys.c|include/uapi/linux/bpf.h)' || continue
+
+            # buang fitur modern
+            echo "$files" | grep -qE '(verifier|core.c|zext|btf|trace|perf|selftest|arch/)' && continue
+
             echo "$c" >> /tmp/bpf_list.txt
           done < /tmp/bpf_raw.txt
 
-          echo "SAFE BPF commits:"
-          wc -l /tmp/bpf_list.txt
-          cat /tmp/bpf_list.txt
+          echo "SAFE BPF commits selected:"
+          cat /tmp/bpf_list.txt || true
+
+          if [ ! -s /tmp/bpf_list.txt ]; then
+            echo "No SAFE BPF commits for kernel 4.14 — expected."
+            exit 0
+          fi
 
           while read c; do
             git format-patch -1 "$c" -o ../patches
           done < /tmp/bpf_list.txt
 
       # ============================
-      # Apply patches safely
+      # Apply patches SAFELY
       # ============================
       - name: Apply patches
         run: |
@@ -79,7 +88,6 @@ jobs:
           grep -q CONFIG_BPF=y $DEFCONFIG || echo "CONFIG_BPF=y" >> $DEFCONFIG
           grep -q CONFIG_BPF_SYSCALL=y $DEFCONFIG || echo "CONFIG_BPF_SYSCALL=y" >> $DEFCONFIG
           grep -q CONFIG_BPF_JIT=y $DEFCONFIG || echo "CONFIG_BPF_JIT=y" >> $DEFCONFIG
-          grep -q CONFIG_HAVE_EBPF_JIT=y $DEFCONFIG || echo "CONFIG_HAVE_EBPF_JIT=y" >> $DEFCONFIG
 
       # ============================
       # Commit & push
@@ -89,5 +97,5 @@ jobs:
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           git status
-          git commit -am "kernel: backport SAFE eBPF support for A15/A16 (surya)" || echo "Nothing to commit"
+          git commit -am "kernel: enable SAFE BPF syscall & uapi for 4.14 (surya)" || echo "Nothing to commit"
           git push
