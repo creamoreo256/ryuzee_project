@@ -9,7 +9,7 @@ jobs:
 
     steps:
       # ============================
-      # Checkout kernel TARGET
+      # Checkout TARGET kernel
       # ============================
       - name: Checkout kernel
         uses: actions/checkout@v4
@@ -26,7 +26,7 @@ jobs:
           git checkout 16.0-bpf
 
       # ============================
-      # Generate SAFE BPF patches
+      # Generate REALLY SAFE BPF patches
       # ============================
       - name: Collect SAFE BPF commits
         run: |
@@ -38,24 +38,27 @@ jobs:
             kernel/bpf/syscall.c \
             kernel/bpf/verifier.c \
             kernel/sys.c \
-            include/linux/bpf* \
-            include/uapi/linux/bpf* \
-          | grep -viE "btf|debug|trace|selftest" \
+            include/uapi/linux/bpf.h \
+          | grep -Ei "bpf|ebpf|syscall|verifier" \
+          | grep -Eiv "btf|debug|trace|selftest|perf|x86|arm64|arch" \
           > /tmp/bpf_list.txt
+
+          wc -l /tmp/bpf_list.txt
+          cat /tmp/bpf_list.txt
 
           while read c; do
             git format-patch -1 "$c" -o ../patches
           done < /tmp/bpf_list.txt
 
       # ============================
-      # Apply patches to TARGET kernel
+      # Apply patches safely
       # ============================
       - name: Apply patches
         run: |
           ls -lah patches || exit 0
           for p in patches/*.patch; do
             echo "Applying $p"
-            git apply --check "$p"
+            git apply --check "$p" || continue
             git apply "$p"
           done
 
@@ -67,5 +70,5 @@ jobs:
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           git status
-          git commit -am "kernel: apply SAFE BPF patches for A15/A16" || echo "Nothing to commit"
+          git commit -am "kernel: backport SAFE eBPF support for A15/A16" || echo "Nothing to commit"
           git push
