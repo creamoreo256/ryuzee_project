@@ -26,25 +26,30 @@ jobs:
           git checkout 16.0-bpf
 
       # ============================
-      # Collect SAFE BPF patches ONLY
+      # Collect REALLY SAFE BPF commits (4.14-safe)
       # ============================
       - name: Collect SAFE BPF commits
         run: |
+          set +e
           mkdir -p patches
           cd crdroid
 
           git log --reverse --pretty=format:%H -- \
-            kernel/bpf \
             kernel/bpf/syscall.c \
             kernel/bpf/map* \
             kernel/bpf/helpers* \
             include/uapi/linux/bpf.h \
           | grep -Ei "bpf|ebpf|syscall|map|helper" \
-          | grep -Eiv "zext|verifier|core.c|verifier.c|btf|trace|debug|selftest|perf|x86|arm64|arch" \
-          > /tmp/bpf_list.txt
+          | grep -Eiv "core.c|verifier.c|zext|btf|trace|debug|selftest|perf|x86|arm64|arch" \
+          > /tmp/bpf_list.txt || true
 
-          echo "Selected commits:"
-          cat /tmp/bpf_list.txt
+          echo "Selected SAFE BPF commits:"
+          cat /tmp/bpf_list.txt || true
+
+          if [ ! -s /tmp/bpf_list.txt ]; then
+            echo "No SAFE BPF commits for 4.14 — skipping"
+            exit 0
+          fi
 
           while read c; do
             git format-patch -1 "$c" -o ../patches
@@ -71,6 +76,7 @@ jobs:
 
           grep -q CONFIG_BPF=y $DEFCONFIG || echo "CONFIG_BPF=y" >> $DEFCONFIG
           grep -q CONFIG_BPF_SYSCALL=y $DEFCONFIG || echo "CONFIG_BPF_SYSCALL=y" >> $DEFCONFIG
+          grep -q CONFIG_BPF_JIT=y $DEFCONFIG || echo "CONFIG_BPF_JIT=y" >> $DEFCONFIG
           grep -q CONFIG_NETFILTER_XT_MATCH_BPF=y $DEFCONFIG || echo "CONFIG_NETFILTER_XT_MATCH_BPF=y" >> $DEFCONFIG
 
       # ============================
@@ -82,5 +88,5 @@ jobs:
           git config user.email "actions@github.com"
 
           git status
-          git commit -am "kernel: safe BPF backport for Android 15/16 (surya)" || echo "Nothing to commit"
+          git commit -am "kernel: SAFE minimal eBPF support for 4.14 (surya)" || echo "Nothing to commit"
           git push
