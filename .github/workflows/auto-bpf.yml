@@ -8,45 +8,64 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
+      # ============================
+      # Checkout kernel TARGET
+      # ============================
       - name: Checkout kernel
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      # ============================
+      # Clone crDroid BPF source
+      # ============================
       - name: Clone crDroid BPF source
         run: |
           git clone https://github.com/crdroidandroid/android_kernel_xiaomi_surya crdroid
           cd crdroid
           git checkout 16.0-bpf
 
+      # ============================
+      # Generate SAFE BPF patches
+      # ============================
       - name: Collect SAFE BPF commits
         run: |
+          mkdir -p patches
           cd crdroid
-          mkdir ../patches
 
           git log --reverse --pretty=format:%H -- \
             kernel/bpf \
+            kernel/bpf/syscall.c \
+            kernel/bpf/verifier.c \
             kernel/sys.c \
             include/linux/bpf* \
             include/uapi/linux/bpf* \
-            kernel/bpf/syscall.c \
-            kernel/bpf/verifier.c > /tmp/bpf_list.txt
+          | grep -viE "btf|debug|trace|selftest" \
+          > /tmp/bpf_list.txt
 
-          i=1
           while read c; do
-            git format-patch -1 "$c" -o ../patches --numbered-files
-            i=$((i+1))
+            git format-patch -1 "$c" -o ../patches
           done < /tmp/bpf_list.txt
 
+      # ============================
+      # Apply patches to TARGET kernel
+      # ============================
       - name: Apply patches
         run: |
+          ls -lah patches || exit 0
           for p in patches/*.patch; do
-            git apply --check "$p" && git apply "$p"
+            echo "Applying $p"
+            git apply --check "$p"
+            git apply "$p"
           done
 
+      # ============================
+      # Commit & push
+      # ============================
       - name: Commit
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
+          git status
           git commit -am "kernel: apply SAFE BPF patches for A15/A16" || echo "Nothing to commit"
           git push
